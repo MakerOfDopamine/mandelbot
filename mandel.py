@@ -95,7 +95,7 @@ while window_running:
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_EQUALS:
-                mul = 1.2
+                mul = 1.25
                 if event.mod & pygame.KMOD_ALT:
                     mul = 2.0
                 glob_iter = math.floor(glob_iter * mul)
