@@ -47,19 +47,22 @@ def draw(data, metric, outfile = None):
     return pixels
 
 def mandelbrot(data, iters = 50):
-    escape = np.zeros(data.shape)
-    for i in range(len(data)):
-        for j in range(len(data[0])):
-            z = 0+0j
-            k = 0
-            for _ in range(iters):
-                z = z * z + data[i][j]
-                k += 1
-                if abs(z) > 2:
-                    break
-            escape[i][j] = k
-                
-    return escape
+    escape = np.zeros(data.shape, dtype=np.complex128)
+    adder = np.array(data)
+    results = np.zeros(data.shape)
+    results.fill(iters)
+    
+    escaped_already = (abs(escape) > 2)
+    mag = np.zeros(data.shape, dtype=np.float64)
+    for k in range(iters):
+        #escape = escape * escape + adder
+        np.square(escape, out=escape, where=np.logical_not(escaped_already))
+        np.add(escape, adder, out=escape, where=np.logical_not(escaped_already))
+        
+        escaped_already = (abs(escape) > 2)
+        np.minimum(results, k, out=results, where=escaped_already)
+    
+    return results
 
 def update(a, b, c, d):
     global mandel, updated
