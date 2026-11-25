@@ -2,11 +2,18 @@ import numpy as np
 import colorsys
 import pygame
 import time
+import math
 from PIL import Image
 
 pygame.init()
 image = pygame.display.set_mode((1200, 800))
 data = pygame.Surface([1200, 800])
+
+LOADING_TEXT = "Rendering..."
+# pygame why you no render text
+loading_font = pygame.font.Font(None, 24)
+loading = loading_font.render(LOADING_TEXT, True, (0, 0, 0))
+LOADING_BG = pygame.Rect(0, 0, 100, 20)
 
 # 900 x 600 window?
 # Principle value of a pixel: top left
@@ -25,7 +32,7 @@ def col_abs_val(c):
 
 def col_iters(c, mxi = 50):
     #if c > mxi: raise ValueError("c > mxi")
-    return np.array(colorsys.hls_to_rgb((c / mxi) % 1, (0 if c == mxi else 0.5), 1)) * 255
+    return np.array(colorsys.hls_to_rgb(0.9 * ((c / mxi) % 1), (0 if c == mxi else 0.5), 1)) * 255
 
 def draw(data, metric, outfile = None):
     pixels = np.zeros(data.shape + (3,), dtype=np.uint8)
@@ -54,14 +61,28 @@ def mandelbrot(data, iters = 50):
                 
     return escape
 
+def update(a, b, c, d):
+    global mandel, updated
+    print("updating with", a, b, c, d)
+    mandel = draw(mandelbrot(populate_data(a+(b*1j), c), d), col_iters)
+    updated = True
+
+def show_update_symbol(x):
+    pygame.draw.rect(x, (255, 255, 255), LOADING_BG)
+    x.blit(loading, loading.get_rect(center=(50, 10)))
+    pygame.display.update()
+
 print("start draw")
 # the expected things are reversed, imag moves x axis and real moves y axis
-mandel = draw(mandelbrot(populate_data(0-0.5j, 1), 100), col_iters)
 updated = True
 window_running = True
 is_selecting = False
 selected_position = []
 rect_other_corner = []
+
+settings = (0, -0.5, 1)
+glob_iter = 50
+update(*settings, glob_iter)
 while window_running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -71,7 +92,28 @@ while window_running:
             is_selecting = True
             selected_position = event.pos
             rect_other_corner = selected_position
-            print(selected_position)
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_EQUALS:
+                mul = 1.2
+                if event.mod & pygame.KMOD_ALT:
+                    mul = 2.0
+                glob_iter = math.floor(glob_iter * mul)
+                print("adding iterations, now", glob_iter)
+                show_update_symbol(image)
+                update(*settings, glob_iter)
+
+            if event.key == pygame.K_MINUS:
+                mul = 0.8
+                if event.mod & pygame.KMOD_ALT:
+                    mul = 0.5
+                glob_iter = math.ceil(glob_iter * mul)
+                print("removing iterations, now", glob_iter)
+                show_update_symbol(image)
+                update(*settings, glob_iter)
+
+            if event.key == pygame.K_ESCAPE:
+                is_selecting = False
 
         if is_selecting and event.type == pygame.MOUSEMOTION:
             LR = event.pos[0] < selected_position[0]
@@ -93,15 +135,28 @@ while window_running:
                     rect_other_corner = (selected_position[0] + 1.5 * rect_scaling, selected_position[1] + rect_scaling)
 
         if is_selecting and event.type == pygame.MOUSEBUTTONUP:
-            is_selecting = False
-            # zoom in ?
+            top_left = (min(event.pos[0], selected_position[0]), min(event.pos[1], selected_position[1]))
+            bottom_right = (max(event.pos[0], selected_position[0]), max(event.pos[1], selected_position[1]))
 
-            print("mouse up")
-            selected_position = (0, 0)
+            if (abs(top_left[0] - bottom_right[0]) < 5): pass
+            elif (not is_selecting): pass
+            else:
+                center = ((top_left[0] + bottom_right[0]) / 2, (top_left[1] + bottom_right[1]) / 2)
+                center_coords = ((center[1] - 400) * settings[2] / 400, (center[0] - 600) * settings[2] / 400)
+
+                settings = (settings[0] + center_coords[0], settings[1] + center_coords[1], settings[2] * (bottom_right[1] - top_left[1]) / 800)
+                #print(top_left, bottom_right, center_coords, settings)
+                #print("updating")
+                show_update_symbol(image)
+                is_selecting = False
+                update(*settings, glob_iter)
+                #print("finished")
+                selected_position = (0, 0)
 
     if not window_running: break
 
     if updated:
+        print("last updated at", *settings, "with max iter", glob_iter)
         pygame.surfarray.blit_array(data, np.swapaxes(mandel, 0, 1))
         updated = False
 
