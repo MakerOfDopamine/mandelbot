@@ -9,6 +9,7 @@ pygame.init()
 image = pygame.display.set_mode((1200, 800))
 data = pygame.Surface([1200, 800])
 
+TIME_RENDERS = True
 LOADING_TEXT = "Rendering..."
 # pygame why you no render text
 loading_font = pygame.font.Font(None, 24)
@@ -64,9 +65,10 @@ def mandelbrot(data, iters = 50):
     return results
 
 def update(a, b, c, d):
-    global mandel, updated
-    print("updating with", a, b, c, d)
+    global mandel, updated, TIME_RENDERS
+    t = time.perf_counter()
     mandel = draw(mandelbrot(populate_data(a+(b*1j), c), d), col_iters)
+    print("rendering took", round(time.perf_counter() - t, 3), "seconds")
     updated = True
 
 def show_update_symbol(x):
