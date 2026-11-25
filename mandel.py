@@ -53,7 +53,6 @@ def mandelbrot(data, iters = 50):
     results.fill(iters)
     
     escaped_already = (abs(escape) > 2)
-    mag = np.zeros(data.shape, dtype=np.float64)
     for k in range(iters):
         #escape = escape * escape + adder
         np.square(escape, out=escape, where=np.logical_not(escaped_already))
