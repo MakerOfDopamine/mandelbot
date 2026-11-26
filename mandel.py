@@ -126,23 +126,21 @@ def mandelbrot(data, iters = 50):
     t = time.perf_counter()
 
     c = np.array(data)
-    final_count = np.zeros(rc.shape)
+    final_count = np.zeros(c.shape[1:])
     final_count.fill(iters)
-    rz, iz = np.zeros(rc.shape), np.zeros(ic.shape)
+    z = np.zeros(c.shape)
 
     for i in range(iters):
-        rz2 = rz * rz
-        iz2 = iz * iz
+        z2 = z * z
+        mag2 = z2[0, :, :] + z2[1, :, :]
+        nesc = mag2 < 4
 
-        nesc = (rz2 + iz2) < 4
-        np.multiply(rz, iz, out=iz, where=nesc)
-        np.multiply(2.0, iz, out=iz, where=nesc)
-        np.subtract(rz2, iz2, out=rz, where=nesc)
+        np.multiply(z[0, :, :], z[1, :, :], out=z[1, :, :], where=nesc)
+        np.multiply(2.0, z[1, :, :], out=z[1, :, :], where=nesc)
+        np.subtract(z2[0, :, :], z2[1, :, :], out=z[0, :, :], where=nesc)
 
-        np.add(rz, rc, out=rz, where=nesc)
-        np.add(iz, ic, out=iz, where=nesc)
-
-        np.fmin(final_count, i, out=final_count, where=np.logical_not(esc))
+        np.add(z, c, out=z, where=nesc)
+        np.fmin(final_count, i, out=final_count, where=np.logical_not(nesc))
 
     return final_count
     
@@ -225,6 +223,13 @@ while window_running:
 
             if event.key == pygame.K_ESCAPE:
                 is_selecting = False
+            
+            if event.key == pygame.K_r and event.mod & pygame.KMOD_SHIFT:
+                print("reset parameters")
+                show_update_symbol(image)
+                settings = (0, -0.5, 1)
+                glob_iter = 50
+                update(*settings, glob_iter)
 
         if is_selecting and event.type == pygame.MOUSEMOTION:
             LR = event.pos[0] < selected_position[0]
