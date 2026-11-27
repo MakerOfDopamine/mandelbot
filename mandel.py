@@ -8,6 +8,26 @@ from PIL import Image
 pygame.init()
 image = pygame.display.set_mode((1200, 800))
 data = pygame.Surface([1200, 800])
+CLEAR = pygame.Surface([1200, 800])
+CLEAR.fill((255, 255, 255))
+
+# shrug, color filtering is slow and table lookup is fast
+COLORS = np.array([[255, 0, 0]], dtype=np.uint8)
+for i in range(1, 255):
+    COLORS = np.append(COLORS, [[255, i, 0]], axis=0)
+for i in range(255):
+    COLORS = np.append(COLORS, [[255 - i, 255, 0]], axis=0)
+for i in range(255):
+    COLORS = np.append(COLORS, [[0, 255, i]], axis=0)
+for i in range(255):
+    COLORS = np.append(COLORS, [[0, 255 - i, 255]], axis=0)
+for i in range(255):
+    COLORS = np.append(COLORS, [[i, 0, 255]], axis=0)
+for i in range(255):
+    COLORS = np.append(COLORS, [[255, 0, 255 - i]], axis=0)
+COLORS = np.append(COLORS, [[0, 0, 0]], axis=0)
+print(COLORS.shape)
+# The lookup has 1531 elements
 
 TIME_RENDERS = True
 LOADING_TEXT = "Rendering..."
@@ -15,9 +35,6 @@ LOADING_TEXT = "Rendering..."
 loading_font = pygame.font.Font(None, 24)
 loading = loading_font.render(LOADING_TEXT, True, (0, 0, 0))
 LOADING_BG = pygame.Rect(0, 0, 100, 20)
-
-# 900 x 600 window?
-# Principle value of a pixel: top left
 
 def populate_data(center = -0.5j, scale = 1):
     data_r = []
@@ -94,7 +111,6 @@ def draw(data, it, outfile = None):
     scaled_hue_red = ((scaled_hue - 170 + 255) % 255)
     scaled_hue_blue = ((scaled_hue + 170) % 255)
 
-    pass
     # Set red channel
     np.add(RED, scaled_hue_red * 6, out=RED, where=np.logical_and(GT_TWO_THIRD, LT_FIVE_SIXTH))
     np.add(RED, 255, out=RED, where=np.logical_or(GT_FIVE_SIXTH, LT_ONE_SIXTH))
@@ -116,33 +132,55 @@ def draw(data, it, outfile = None):
     np.minimum(BLUE, 0, out=BLUE, where=black)
 
     pixels = pixels.astype(np.uint8)
+    '''
+    # Blending pixels
+    array_tl = pixels[:-1, :-1]
+    array_tr = pixels[:-1, 1:]
+    array_bl = pixels[1:, :-1]
+    array_br = pixels[1:, 1:]
 
+    out_pixels = np.zeros(pixels.shape)
+    out_pixels[0, :] = pixels[0, :]
+    out_pixels[:, 0] = pixels[:, 0]
+
+    out_pixels[1:, 1:] = (array_tl + array_tr + array_bl + array_br) / 4
+    out_pixels = out_pixels.astype(np.uint8)
+
+    '''
     if outfile is not None:
         Image.fromarray(pixels).save(outfile)
-
     return pixels
 
 def mandelbrot(data, iters = 50):
-    t = time.perf_counter()
-
+    global image
     c = np.array(data)
     final_count = np.zeros(c.shape[1:])
     final_count.fill(iters)
+    #ti = pygame.Surface([1200, 800])
     z = np.zeros(c.shape)
 
+    prev = np.zeros(c.shape[1:])
+    #pixels = np.zeros(c.shape[1:])
     for i in range(iters):
         z2 = z * z
         mag2 = z2[0, :, :] + z2[1, :, :]
         nesc = mag2 < 4
+        esc = np.logical_not(nesc)
 
         np.multiply(z[0, :, :], z[1, :, :], out=z[1, :, :], where=nesc)
         np.multiply(2.0, z[1, :, :], out=z[1, :, :], where=nesc)
         np.subtract(z2[0, :, :], z2[1, :, :], out=z[0, :, :], where=nesc)
 
         np.add(z, c, out=z, where=nesc)
-        np.fmin(final_count, i, out=final_count, where=np.logical_not(nesc))
+        np.fmin(final_count, i, out=final_count, where=esc)
+        np.logical_or(prev, esc, out=prev)
 
-    return final_count
+        #frame_to_be_drawn = draw(final_count, iters)
+        #pygame.surfarray.blit_array(ti, np.swapaxes(frame_to_be_drawn, 0, 1))
+        #image.blit(ti)
+        #pygame.display.update()
+
+        yield final_count
     
     '''
     escape = np.zeros(data.shape, dtype=np.complex128)
@@ -169,36 +207,51 @@ def mandelbrot(data, iters = 50):
     '''
 
 def update(a, b, c, d):
-    global mandel, updated, glob_iter, TIME_RENDERS
+    global mandel, updated, glob_iter, TIME_RENDERS, data
     t = time.perf_counter()
-    mandel = draw(mandelbrot(populate_data(a+(b*1j), c), d), glob_iter)
+    mandel = mandelbrot(populate_data(a+(b*1j), c), d)
+    pixels = None
+    since_last_update = time.time()
+    for _ in range(d):
+        pixels = next(mandel)
+        if (time.time() - since_last_update > 0.05):
+            pygame.surfarray.blit_array(data, np.swapaxes(COLORS[np.floor(pixels / d * 1530).astype(np.uint16)], 0, 1))
+            image.blit(data)
+            pygame.draw.rect(image, (255, 255, 255), LOADING_BG)
+            image.blit(loading, loading.get_rect(center=(50, 10)))
+            pygame.display.update()
+            since_last_update = time.time()
+            
     print("rendering took", round(time.perf_counter() - t, 3), "seconds")
-    updated = True
-
-def show_update_symbol(x):
-    pygame.draw.rect(x, (255, 255, 255), LOADING_BG)
-    x.blit(loading, loading.get_rect(center=(50, 10)))
+    image.blit(data)
     pygame.display.update()
-
+    updated = True
 
 print("start draw")
 # the expected things are reversed, imag moves x axis and real moves y axis
 updated = True
 window_running = True
 is_selecting = False
+is_dragging = False
 selected_position = []
 rect_other_corner = []
 
 settings = (0, -0.5, 1)
 glob_iter = 50
+#settings = (-0.011321262377929688, -0.7499394506591798, 1.6503662109375002e-06)
+#glob_iter = 25600
 update(*settings, glob_iter)
 while window_running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             window_running = False
 
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            is_selecting = True
+        if event.type == pygame.MOUSEBUTTONDOWN and not updated:
+            if event.button == 1:
+                is_selecting = True
+            elif event.button == 3:
+                print("drag")
+                is_dragging = True
             selected_position = event.pos
             rect_other_corner = selected_position
 
@@ -209,7 +262,6 @@ while window_running:
                     mul = 2.0
                 glob_iter = math.floor(glob_iter * mul)
                 print("adding iterations, now", glob_iter)
-                show_update_symbol(image)
                 update(*settings, glob_iter)
 
             if event.key == pygame.K_MINUS:
@@ -218,15 +270,15 @@ while window_running:
                     mul = 0.5
                 glob_iter = math.ceil(glob_iter * mul)
                 print("removing iterations, now", glob_iter)
-                show_update_symbol(image)
                 update(*settings, glob_iter)
 
             if event.key == pygame.K_ESCAPE:
                 is_selecting = False
+                is_dragging = False
+                image.blit(data)
             
             if event.key == pygame.K_r and event.mod & pygame.KMOD_SHIFT:
                 print("reset parameters")
-                show_update_symbol(image)
                 settings = (0, -0.5, 1)
                 glob_iter = 50
                 update(*settings, glob_iter)
@@ -250,6 +302,9 @@ while window_running:
                     rect_scaling = min((event.pos[0] - selected_position[0]) / 1.5, (event.pos[1] - selected_position[1]))
                     rect_other_corner = (selected_position[0] + 1.5 * rect_scaling, selected_position[1] + rect_scaling)
 
+        if is_dragging and event.type == pygame.MOUSEMOTION:
+            rect_other_corner = event.pos
+
         if is_selecting and event.type == pygame.MOUSEBUTTONUP:
             top_left = (min(event.pos[0], selected_position[0]), min(event.pos[1], selected_position[1]))
             bottom_right = (max(event.pos[0], selected_position[0]), max(event.pos[1], selected_position[1]))
@@ -263,20 +318,25 @@ while window_running:
                 settings = (settings[0] + center_coords[0], settings[1] + center_coords[1], settings[2] * (bottom_right[1] - top_left[1]) / 800)
                 #print(top_left, bottom_right, center_coords, settings)
                 #print("updating")
-                show_update_symbol(image)
                 is_selecting = False
                 update(*settings, glob_iter)
                 #print("finished")
                 selected_position = (0, 0)
 
+        if is_dragging and event.type == pygame.MOUSEBUTTONUP:
+            offset = (rect_other_corner[1] - selected_position[1], rect_other_corner[0] - selected_position[0])
+            settings = (settings[0] - (offset[0] / 400) * settings[2], settings[1] - (offset[1] / 400) * settings[2], settings[2])
+            is_dragging = False
+            update(*settings, glob_iter)
+            selected_position = (0, 0)
+
     if not window_running: break
 
     if updated:
         print("last updated at", *settings, "with max iter", glob_iter)
-        pygame.surfarray.blit_array(data, np.swapaxes(mandel, 0, 1))
+        #pygame.surfarray.blit_array(data, np.swapaxes(mandel, 0, 1))
         updated = False
-
-    image.blit(data)
+    
     if is_selecting:
         select_box = pygame.Rect(
             min(selected_position[0], rect_other_corner[0]), 
@@ -285,7 +345,12 @@ while window_running:
             max(selected_position[1], rect_other_corner[1]) - min(selected_position[1], rect_other_corner[1]),
         )
 
+        image.blit(data)
         pygame.draw.rect(image, (120, 120, 120, 255), select_box, 1)
+
+    if is_dragging:
+        image.blit(CLEAR)
+        image.blit(data, (rect_other_corner[0] - selected_position[0], rect_other_corner[1] - selected_position[1]))
 
     pygame.display.update()
     time.sleep(0.05)
