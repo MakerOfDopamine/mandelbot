@@ -3,6 +3,7 @@ import colorsys
 import pygame
 import time
 import math
+import gmpy2
 from decimal import Decimal, getcontext
 from PIL import Image
 
@@ -36,17 +37,18 @@ loading_font = pygame.font.Font(None, 24)
 loading = loading_font.render(LOADING_TEXT, True, (0, 0, 0))
 LOADING_BG = pygame.Rect(0, 0, 100, 20)
 
-data_mask = np.zeros((2, 800, 1200))
-for i in range(800):
-    data_mask[0, i, :] = (i - 400) / 400
+data_mask = np.zeros((2, 1200, 800))
 for i in range(1200):
-    data_mask[1, :, i] = (i - 600) / 400
+    data_mask[0, i, :] = (i - 600) / 400
+for i in range(800):
+    data_mask[1, :, i] = (i - 400) / 400
+
 def populate_data(rcenter = 0, icenter = -0.5, scale = 1):
-    data = np.zeros((2, 800, 1200))
+    data = np.zeros((2, 1200, 800))
     data[0].fill(rcenter)
     data[1].fill(icenter)
     np.add(data, data_mask * scale, out=data)
-    return data[1], data[0]
+    return data[0], data[1]
 
 def col_abs_val(c):
     return np.array(colorsys.hls_to_rgb(abs(c) % 1, 0.5, 1)) * 255
@@ -169,52 +171,71 @@ def mandelbrot(data, iters = 50):
         np.add(z, c, out=z, where=nesc)
         np.fmin(final_count, i, out=final_count, where=esc)
 
+        print(z[:, 400, 600], i)
+
         yield final_count
-    
-    '''
-    escape = np.zeros(data.shape, dtype=np.complex128)
-    adder = np.array(data)
-    results = np.zeros(data.shape)
-    results.fill(iters)
-    
-    escaped_already = (abs(escape) > 2)
-    print("preimaging took", time.perf_counter() - t); t = time.perf_counter()
-    for k in range(iters):
-        t = time.perf_counter()
-        #escape = escape * escape + adder
-        np.square(escape, out=escape, where=np.logical_not(escaped_already))
-        print("squaring took", time.perf_counter() - t); t = time.perf_counter()
-        np.add(escape, adder, out=escape, where=np.logical_not(escaped_already))
-        print("adding took", time.perf_counter() - t); t = time.perf_counter()
-        
-        escaped_already = (abs(escape) > 2)
-        print("compute escape took", time.perf_counter() - t); t = time.perf_counter()
-        np.minimum(results, k, out=results, where=escaped_already)
-        print("update took", time.perf_counter() - t); t = time.perf_counter()
-    
-    return results
-    '''
 
 def mandel_highprec(data, zoom, iters = 50):
-    getcontext().prec = math.ceil(8 - math.log10(zoom))
+    ctx = gmpy2.get_context()
+    ctx.precision = max(53, math.ceil(16 - math.log2(zoom)))
     c = np.array(data)
-    ref_cr = Decimal(c[0, 400, 600])
-    ref_ci = Decimal(c[1, 400, 600])
+    ref_cr = gmpy2.mpfr(c[0, 400, 600])
+    ref_ci = gmpy2.mpfr(c[1, 400, 600])
 
-    zr = Decimal(0)
-    zi = Decimal(0)
-    ref_iters = 0
-
+    zr = gmpy2.mpfr('0')
+    zi = gmpy2.mpfr('0')
+    ref_orbit = []
+    INFINITY = gmpy2.mpfr('179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215')
+    
     for i in range(iters):
         zr2 = zr * zr
         zi2 = zi * zi
 
-        if zr2 + zi2 > 4:
-            ref_iters = i
+        if (zr2 + zi2) > INFINITY:
+            for _ in range(iters - i):
+                ref_orbit.append((INFINITY, INFINITY))
             break
 
         zi = 2 * zr * zi + ref_ci
         zr = zr2 - zi2 + ref_cr
+
+        ref_orbit.append((zr, zi))
+
+    print("computed reference orbit")
+
+    epsilons_r = np.zeros((800, 1200), dtype=gmpy2.mpfr)
+    epsilons_i = np.zeros((800, 1200), dtype=gmpy2.mpfr)
+    deltas_r = np.array(data_mask[0, :, :], dtype=gmpy2.mpfr)
+    deltas_i = np.array(data_mask[1, :, :], dtype=gmpy2.mpfr)
+
+    epsilons_r[:] = gmpy2.mpfr(0)
+    epsilons_i[:] = gmpy2.mpfr(0)
+
+    _v = np.vectorize(gmpy2.mpfr)
+    deltas_r[:] = _v(deltas_r * zoom)
+    deltas_i[:] = _v(deltas_i * zoom)
+
+    escaped = np.zeros((800, 1200))
+    for i in range(iters):
+        #for x in range(800):
+        #    for y in range(1200):
+        epsilons_r, epsilons_i = (
+            2.0 * (ref_orbit[i][0] * epsilons_r - ref_orbit[i][1] * epsilons_i) + epsilons_r * epsilons_r - epsilons_i * epsilons_i + deltas_r, 
+            2.0 * (epsilons_r * ref_orbit[i][1] + epsilons_i * ref_orbit[i][0] + epsilons_r * epsilons_i) + deltas_i
+        )
+        posr = epsilons_i + ref_orbit[i][0]
+        posi = epsilons_r + ref_orbit[i][1]
+
+        posr2 = posr * posr
+        posi2 = posi * posi
+
+        escaped[posr2 + posi2 > 4] = i
+
+        print(posr[300, 500], posi[300, 500], i)
+
+        print("iteration", i)
+
+    return escaped
 
 def update(a, b, c, d):
     global mandel, updated, glob_iter, TIME_RENDERS, data
@@ -225,7 +246,7 @@ def update(a, b, c, d):
     for _ in range(d):
         pixels = next(mandel)
         if (time.time() - since_last_update > 0.05):
-            pygame.surfarray.blit_array(data, np.swapaxes(COLORS[np.floor(pixels / d * 1530).astype(np.uint16)], 0, 1))
+            pygame.surfarray.blit_array(data, COLORS[np.floor(pixels / d * 1530).astype(np.uint16)])
             image.blit(data)
             pygame.draw.rect(image, (255, 255, 255), LOADING_BG)
             image.blit(loading, loading.get_rect(center=(50, 10)))
@@ -246,8 +267,17 @@ is_dragging = False
 selected_position = []
 rect_other_corner = []
 
+'''
+update(0, -0.5, 1, 10)
+hp_results = mandel_highprec(populate_data(0, -0.5, 1), 1, 10)
+pygame.surfarray.blit_array(data, np.swapaxes(COLORS[np.floor(hp_results / 10 * 1530).astype(np.uint16)], 0, 1))
+image.blit(data)
+pygame.display.update()
+time.sleep(10)
+'''
+
 #settings = (Decimal(0), Decimal(-0.5), 1)
-settings = (0, -0.5, 1)
+settings = (-0.5, 0, 1)
 glob_iter = 50
 #settings = (-0.08100179833989508, -0.7585103961889802, 2.854753375053406e-13)
 #glob_iter = 25600
@@ -290,7 +320,7 @@ while window_running:
             
             if event.key == pygame.K_r and event.mod & pygame.KMOD_SHIFT:
                 print("reset parameters")
-                settings = (0, -0.5, 1)
+                settings = (-0.5, 0, 1)
                 glob_iter = 50
                 update(*settings, glob_iter)
 
@@ -324,7 +354,7 @@ while window_running:
             elif (not is_selecting): pass
             else:
                 center = ((top_left[0] + bottom_right[0]) / 2, (top_left[1] + bottom_right[1]) / 2)
-                center_coords = ((center[1] - 400) * settings[2] / 400, (center[0] - 600) * settings[2] / 400)
+                center_coords = ((center[0] - 600) * settings[2] / 400, (center[1] - 400) * settings[2] / 400)
 
                 settings = (settings[0] + center_coords[0], settings[1] + center_coords[1], settings[2] * (bottom_right[1] - top_left[1]) / 800)
                 #print(top_left, bottom_right, center_coords, settings)
@@ -335,7 +365,7 @@ while window_running:
                 selected_position = (0, 0)
 
         if is_dragging and event.type == pygame.MOUSEBUTTONUP:
-            offset = (rect_other_corner[1] - selected_position[1], rect_other_corner[0] - selected_position[0])
+            offset = (rect_other_corner[0] - selected_position[0], rect_other_corner[1] - selected_position[1])
             settings = (settings[0] - (offset[0] / 400) * settings[2], settings[1] - (offset[1] / 400) * settings[2], settings[2])
             is_dragging = False
             update(*settings, glob_iter)
