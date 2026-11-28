@@ -3,6 +3,7 @@ import colorsys
 import pygame
 import time
 import math
+from decimal import Decimal, getcontext
 from PIL import Image
 
 pygame.init()
@@ -26,7 +27,6 @@ for i in range(255):
 for i in range(255):
     COLORS = np.append(COLORS, [[255, 0, 255 - i]], axis=0)
 COLORS = np.append(COLORS, [[0, 0, 0]], axis=0)
-print(COLORS.shape)
 # The lookup has 1531 elements
 
 TIME_RENDERS = True
@@ -36,18 +36,17 @@ loading_font = pygame.font.Font(None, 24)
 loading = loading_font.render(LOADING_TEXT, True, (0, 0, 0))
 LOADING_BG = pygame.Rect(0, 0, 100, 20)
 
-def populate_data(center = -0.5j, scale = 1):
-    data_r = []
-    data_i = []
-    for i in range(800):
-        row_r = []
-        row_i = []
-        for j in range(1200):
-            row_r.append(((j - 600) * scale / 400) + center.imag)
-            row_i.append(((i - 400) * scale / 400) + center.real)
-        data_r.append(row_r[::])
-        data_i.append(row_i[::])
-    return np.array(data_r), np.array(data_i)
+data_mask = np.zeros((2, 800, 1200))
+for i in range(800):
+    data_mask[0, i, :] = (i - 400) / 400
+for i in range(1200):
+    data_mask[1, :, i] = (i - 600) / 400
+def populate_data(rcenter = 0, icenter = -0.5, scale = 1):
+    data = np.zeros((2, 800, 1200))
+    data[0].fill(rcenter)
+    data[1].fill(icenter)
+    np.add(data, data_mask * scale, out=data)
+    return data[1], data[0]
 
 def col_abs_val(c):
     return np.array(colorsys.hls_to_rgb(abs(c) % 1, 0.5, 1)) * 255
@@ -152,15 +151,11 @@ def draw(data, it, outfile = None):
     return pixels
 
 def mandelbrot(data, iters = 50):
-    global image
     c = np.array(data)
     final_count = np.zeros(c.shape[1:])
     final_count.fill(iters)
-    #ti = pygame.Surface([1200, 800])
     z = np.zeros(c.shape)
 
-    prev = np.zeros(c.shape[1:])
-    #pixels = np.zeros(c.shape[1:])
     for i in range(iters):
         z2 = z * z
         mag2 = z2[0, :, :] + z2[1, :, :]
@@ -173,12 +168,6 @@ def mandelbrot(data, iters = 50):
 
         np.add(z, c, out=z, where=nesc)
         np.fmin(final_count, i, out=final_count, where=esc)
-        np.logical_or(prev, esc, out=prev)
-
-        #frame_to_be_drawn = draw(final_count, iters)
-        #pygame.surfarray.blit_array(ti, np.swapaxes(frame_to_be_drawn, 0, 1))
-        #image.blit(ti)
-        #pygame.display.update()
 
         yield final_count
     
@@ -206,10 +195,31 @@ def mandelbrot(data, iters = 50):
     return results
     '''
 
+def mandel_highprec(data, zoom, iters = 50):
+    getcontext().prec = math.ceil(8 - math.log10(zoom))
+    c = np.array(data)
+    ref_cr = Decimal(c[0, 400, 600])
+    ref_ci = Decimal(c[1, 400, 600])
+
+    zr = Decimal(0)
+    zi = Decimal(0)
+    ref_iters = 0
+
+    for i in range(iters):
+        zr2 = zr * zr
+        zi2 = zi * zi
+
+        if zr2 + zi2 > 4:
+            ref_iters = i
+            break
+
+        zi = 2 * zr * zi + ref_ci
+        zr = zr2 - zi2 + ref_cr
+
 def update(a, b, c, d):
     global mandel, updated, glob_iter, TIME_RENDERS, data
     t = time.perf_counter()
-    mandel = mandelbrot(populate_data(a+(b*1j), c), d)
+    mandel = mandelbrot(populate_data(a, b, c), d)
     pixels = None
     since_last_update = time.time()
     for _ in range(d):
@@ -236,9 +246,10 @@ is_dragging = False
 selected_position = []
 rect_other_corner = []
 
+#settings = (Decimal(0), Decimal(-0.5), 1)
 settings = (0, -0.5, 1)
 glob_iter = 50
-#settings = (-0.011321262377929688, -0.7499394506591798, 1.6503662109375002e-06)
+#settings = (-0.08100179833989508, -0.7585103961889802, 2.854753375053406e-13)
 #glob_iter = 25600
 update(*settings, glob_iter)
 while window_running:
