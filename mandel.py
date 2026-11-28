@@ -170,8 +170,7 @@ def mandelbrot(data, iters = 50):
 
         np.add(z, c, out=z, where=nesc)
         np.fmin(final_count, i, out=final_count, where=esc)
-
-        print(z[:, 400, 600], i)
+        print(z[:, 500, 300], i)
 
         yield final_count
 
@@ -179,12 +178,12 @@ def mandel_highprec(data, zoom, iters = 50):
     ctx = gmpy2.get_context()
     ctx.precision = max(53, math.ceil(16 - math.log2(zoom)))
     c = np.array(data)
-    ref_cr = gmpy2.mpfr(c[0, 400, 600])
-    ref_ci = gmpy2.mpfr(c[1, 400, 600])
+    ref_cr = gmpy2.mpfr(c[0, 600, 400])
+    ref_ci = gmpy2.mpfr(c[1, 600, 400])
 
     zr = gmpy2.mpfr('0')
     zi = gmpy2.mpfr('0')
-    ref_orbit = []
+    ref_orbit = [(gmpy2.mpfr('0'), gmpy2.mpfr('0'))]
     INFINITY = gmpy2.mpfr('179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215')
     
     for i in range(iters):
@@ -203,8 +202,8 @@ def mandel_highprec(data, zoom, iters = 50):
 
     print("computed reference orbit")
 
-    epsilons_r = np.zeros((800, 1200), dtype=gmpy2.mpfr)
-    epsilons_i = np.zeros((800, 1200), dtype=gmpy2.mpfr)
+    epsilons_r = np.zeros((1200, 800), dtype=gmpy2.mpfr)
+    epsilons_i = np.zeros((1200, 800), dtype=gmpy2.mpfr)
     deltas_r = np.array(data_mask[0, :, :], dtype=gmpy2.mpfr)
     deltas_i = np.array(data_mask[1, :, :], dtype=gmpy2.mpfr)
 
@@ -215,23 +214,23 @@ def mandel_highprec(data, zoom, iters = 50):
     deltas_r[:] = _v(deltas_r * zoom)
     deltas_i[:] = _v(deltas_i * zoom)
 
-    escaped = np.zeros((800, 1200))
+    print(ref_orbit, deltas_r[500, 300], deltas_i[500, 300])
+
+    escaped = np.zeros((1200, 800))
     for i in range(iters):
-        #for x in range(800):
-        #    for y in range(1200):
         epsilons_r, epsilons_i = (
             2.0 * (ref_orbit[i][0] * epsilons_r - ref_orbit[i][1] * epsilons_i) + epsilons_r * epsilons_r - epsilons_i * epsilons_i + deltas_r, 
             2.0 * (epsilons_r * ref_orbit[i][1] + epsilons_i * ref_orbit[i][0] + epsilons_r * epsilons_i) + deltas_i
         )
-        posr = epsilons_i + ref_orbit[i][0]
-        posi = epsilons_r + ref_orbit[i][1]
+        
+        posr = epsilons_r + ref_orbit[i+1][0]
+        posi = epsilons_i + ref_orbit[i+1][1]
 
         posr2 = posr * posr
         posi2 = posi * posi
 
         escaped[posr2 + posi2 > 4] = i
-
-        print(posr[300, 500], posi[300, 500], i)
+        print(posr[500, 300], posi[500, 300], i)
 
         print("iteration", i)
 
@@ -268,9 +267,9 @@ selected_position = []
 rect_other_corner = []
 
 '''
-update(0, -0.5, 1, 10)
-hp_results = mandel_highprec(populate_data(0, -0.5, 1), 1, 10)
-pygame.surfarray.blit_array(data, np.swapaxes(COLORS[np.floor(hp_results / 10 * 1530).astype(np.uint16)], 0, 1))
+update(-0.5, 0, 1, 10)
+hp_results = mandel_highprec(populate_data(-0.5, 0, 1), 1, 10)
+pygame.surfarray.blit_array(data, COLORS[np.floor(hp_results / 10 * 1530).astype(np.uint16)])
 image.blit(data)
 pygame.display.update()
 time.sleep(10)
