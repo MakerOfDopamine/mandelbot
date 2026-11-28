@@ -4,7 +4,6 @@ import pygame
 import time
 import math
 import gmpy2
-from decimal import Decimal, getcontext
 from PIL import Image
 
 pygame.init()
@@ -43,7 +42,20 @@ for i in range(1200):
 for i in range(800):
     data_mask[1, :, i] = (i - 400) / 400
 
-def populate_data(rcenter = 0, icenter = -0.5, scale = 1):
+def limbing(n, z = None):
+    if n > 4294967290: raise ValueError("too big")
+    p = n.precision
+    limbs_needed = z if z else ((p + 1) // 32) + 1
+
+    limbed = np.zeros((limbs_needed), dtype=np.uint32)
+    for i in range(limbs_needed):
+        limbed[i] = (n - n % 1)
+        n %= 1
+        n *= (1 << 32)
+
+    return limbed
+
+def populate_data(rcenter = -0.5, icenter = 0, scale = 1):
     data = np.zeros((2, 1200, 800))
     data[0].fill(rcenter)
     data[1].fill(icenter)
@@ -169,12 +181,12 @@ def mandelbrot(data, iters = 50):
         np.subtract(z2[0, :, :], z2[1, :, :], out=z[0, :, :], where=nesc)
 
         np.add(z, c, out=z, where=nesc)
-        np.fmin(final_count, i, out=final_count, where=esc)
-        print(z[:, 500, 300], i)
+        final_count[esc] -= 1
 
         yield final_count
 
 def mandel_highprec(data, zoom, iters = 50):
+    # SLOW
     ctx = gmpy2.get_context()
     ctx.precision = max(53, math.ceil(16 - math.log2(zoom)))
     c = np.array(data)
@@ -217,6 +229,7 @@ def mandel_highprec(data, zoom, iters = 50):
     print(ref_orbit, deltas_r[500, 300], deltas_i[500, 300])
 
     escaped = np.zeros((1200, 800))
+    escaped.fill(iters)
     for i in range(iters):
         epsilons_r, epsilons_i = (
             2.0 * (ref_orbit[i][0] * epsilons_r - ref_orbit[i][1] * epsilons_i) + epsilons_r * epsilons_r - epsilons_i * epsilons_i + deltas_r, 
@@ -229,12 +242,16 @@ def mandel_highprec(data, zoom, iters = 50):
         posr2 = posr * posr
         posi2 = posi * posi
 
-        escaped[posr2 + posi2 > 4] = i
+        escaped[posr2 + posi2 > 4] -= 1
         print(posr[500, 300], posi[500, 300], i)
 
         print("iteration", i)
 
     return escaped
+
+def mandel_highprec_fixp(data, zoom, iters = 50):
+    # Experiment on custom data types
+    size = math.ceil(max(96, 16 - math.log2(zoom)) / 32)
 
 def update(a, b, c, d):
     global mandel, updated, glob_iter, TIME_RENDERS, data
